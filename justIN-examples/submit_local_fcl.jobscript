@@ -8,7 +8,7 @@ Use this command to create the workflow:
 justin simple-workflow \
 --mql \
 "files from fardet-hd:fardet-hd__fd_mc_2023a_reco2__full-reconstructed__v09_81_00d02__standard_reco2_dune10kt_nu_1x2x6__prodgenie_nu_dune10kt_1x2x6__out1__validation limit 5 "\
---jobscript submit_ana.jobscript --max-distance 30 --rss-mb 4000 \
+--jobscript submit_ana.jobscript --rss-mb 4000 \
 --scope higuera --output-pattern '*_ana_*.root:$FNALURL/$USERF' 
 
 The following optional environment variables can be set when creating the

@@ -7,9 +7,9 @@ Use this command to create the workflow:
 
 justin simple-workflow \
 --mql \
-"files from fardet-hd:fardet-hd__fd_mc_2023a_reco2__full-reconstructed__v09_81_00d02__standard_reco2_dune10kt_nu_1x2x6__prodgenie_nu_dune10kt_1x2x6__out1__validation limit 5 "\
---jobscript submit_ana.jobscript --max-distance 30 --rss-mb 4000 \
---scope higuera --output-pattern '*_ana_*.root:$FNALURL/$USERF' 
+"files from fardet-hd:fardet-hd__fd_mc_2023a__hit-reconstructed__v09_78_01d01__standard_reco1_dune10kt_1x2x6__prodgenie_nu_dune10kt_1x2x6__out1__v1_official limit 1 limit 5 "\
+--jobscript submit_ana.jobscript --rss-mb 4000 \
+--scope higuera --output-pattern '*_myreco2_*.root:$FNALURL/$USERF' 
 
 The following optional environment variables can be set when creating the
 workflow/stage: FCL_FILE, NUM_EVENTS, DUNE_VERSION, DUNE_QUALIFIER 
@@ -61,7 +61,7 @@ campaign="justIN.w${JUSTIN_WORKFLOW_ID}s${JUSTIN_STAGE_ID}"
 export LD_PRELOAD=${XROOTD_LIB}/libXrdPosixPreload.so
 echo "$LD_PRELOAD"
 
-lar -c $FCL_FILE $events_option -o $outFile "$pfn" > ${fname}_ana_${now}.log 2>&1
+lar -c $FCL_FILE $events_option -o $outFile "$pfn" > ${fname}_myreco2_${now}.log 2>&1
 )
 
 echo '=== Start last 100 lines of lar log file ==='

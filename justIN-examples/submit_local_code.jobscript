@@ -7,7 +7,7 @@ Use this command to create the workflow:
 
 justin simple-workflow \
 --mql \
-"files from fardet-hd:fardet-hd__fd_mc_2023a__hit-reconstructed__v09_78_01d01__standard_reco1_dune10kt_1x2x6__prodgenie_nu_dune10kt_1x2x6__out1__v1_official limit 1 limit 5 "\
+"files from fardet-hd:fardet-hd__fd_mc_2023a__hit-reconstructed__v09_78_01d01__standard_reco1_dune10kt_1x2x6__prodgenie_nu_dune10kt_1x2x6__out1__v1_official limit 1 limit 5  ordered"\
 --jobscript submit_ana.jobscript --rss-mb 4000 \
 --scope higuera --output-pattern '*_myreco2_*.root:$FNALURL/$USERF' 
 

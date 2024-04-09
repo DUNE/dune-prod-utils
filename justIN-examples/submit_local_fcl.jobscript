@@ -17,7 +17,7 @@ workflow/stage: FCL_FILE, NUM_EVENTS, DUNE_VERSION, DUNE_QUALIFIER
 EOF
 
 # fcl file and DUNE software version/qualifier to be used
-FCL_FILE=${FCL_FILE:-$INPUT_TAR_DIR_LOCAL/my_code/my_ana.fcl}
+FCL_FILE=${FCL_FILE:-$INPUT_TAR_DIR_LOCAL/my_fcls/my_ana.fcl}
 DUNE_VERSION=${DUNE_VERSION:-v09_81_00d02}
 DUNE_QUALIFIER=${DUNE_QUALIFIER:-e26:prof}
 

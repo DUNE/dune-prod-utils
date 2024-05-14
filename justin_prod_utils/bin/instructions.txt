@@ -1,0 +1,41 @@
+### Run this on the input file to get old metadata 
+### Will be used to fill-in child metadata
+metacat file show -mj ${DID} > old_md.json
+mcExit=$?
+if [ $mcExit -eq 0 ] ; then
+  echo "old metadata:"
+  cat old_md.json
+else
+  echo "Could not retrieve old metadata"
+  exit 1 
+fi
+
+
+
+##Use this to get the same-style metadata
+##OUTFILE.root is the result of some reco2 running -- just needs to be an artroot file generally
+extractor_prod.py --infile ${OUTFILE}.root --campaign ${CAMPAIGN:-fd_mc_2023a_reco2} \
+                  --requestid ritm1780305 --no_crc > ${OUTFILE}.root.json
+extractorExit=$?
+if [ $extractorExit -eq 0 ] ; then
+  # Success !
+  echo "Extracted metadata"
+else
+  # Error -- exit immediately 
+  jobscriptExit=1
+  echo "Failed to extract md"
+  exit $extractorExit
+fi
+
+### Convert the metadata to metacat
+### use json from extractor prod, give it the reco file ran on the input
+### MDDETTYPE is fardet-hd or fardet-vd (check that these are correct)
+### $DID is the parent of form <namespace:name> from metacat
+### (equivalently scope:name from rucio -- we expect them to be the same)
+python convert_metadata.py -i ${OUTFILE}.root.json \
+                           -c ${RECOFCL} -j old_md.json \
+                           --app "art.reco2" \
+                           --app_ver "${DUNE_VERSION:-v09_81_00d02}" \
+                           --det "${MDDETTYPE}" \
+                           --parent ${DID}
+

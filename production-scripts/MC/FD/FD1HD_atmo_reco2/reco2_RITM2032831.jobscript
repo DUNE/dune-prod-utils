@@ -1,0 +1,170 @@
+#!/bin/bash
+#
+source /cvmfs/dune.opensciencegrid.org/products/dune/setup_dune.sh
+setup metacat
+export METACAT_SERVER_URL=https://metacat.fnal.gov:9443/dune_meta_prod/app
+export METACAT_AUTH_SERVER_URL=https://metacat.fnal.gov:8143/auth/dune
+
+
+##TODO -- write usage
+
+
+
+DETECTOR="${DETPROD:-HD}"
+
+## Build up the fcls to use
+if [ "${DETECTOR}" = "HD" ]; then
+  RECOFCL="reco2_atmos_dune10kt_1x2x6_geov5.fcl"
+  MDDETTYPE="fardet-hd"
+
+elif [ "${DETECTOR}" = "TEST" ]; then
+  RECOFCL="${INPUT_TAR_DIR_LOCAL}/test.fcl"
+
+elif [ "${DETECTOR}" = "TEST2" ]; then
+  RECOFCL="${INPUT_TAR_DIR_LOCAL}/test2.fcl"
+
+else
+  echo "NEED TO REQUEST EITHER HD OR VD. USER REQUESTED ${DETECTOR}"
+  exit 1
+fi
+
+echo "Using Reco fcl: ${RECOFCL}"
+
+#Setup recent lar software suite
+setup dunesw \
+   "${DUNE_VERSION:-v09_89_01d01}" \
+   -q "${DUNE_QUALIFIER:-e26:prof}"
+echo "printing env"
+env
+
+
+##Force certain env vars to force good behavior
+#export TF_NUM_THREADS=$JUSTIN_PROCESSORS    
+#export OPENBLAS_NUM_THREADS=$JUSTIN_PROCESSORS  
+#export JULIA_NUM_THREADS=$JUSTIN_PROCESSORS  
+#export MKL_NUM_THREADS=$JUSTIN_PROCESSORS  
+#export NUMEXPR_NUM_THREADS=$JUSTIN_PROCESSORS  
+#export OMP_NUM_THREADS=$JUSTIN_PROCESSORS   
+
+if [ -z ${JUSTIN_PROCESSORS} ]; then
+  JUSTIN_PROCESSORS=1
+fi
+
+echo "Justin processors: ${JUSTIN_PROCESSORS}"
+
+export TF_NUM_THREADS=${JUSTIN_PROCESSORS}   
+export OPENBLAS_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export JULIA_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export MKL_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export NUMEXPR_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export OMP_NUM_THREADS=${JUSTIN_PROCESSORS}  
+
+#
+echo "Will use justin-get-file"
+#
+DID_PFN_RSE=`$JUSTIN_PATH/justin-get-file`
+#getfileExit=$?
+
+#if [ $getfileExit -ne 0 ] ; then
+#  # Success !
+#  # Error -- exit immediately 
+#  jobscriptExit=1
+#  echo "Error in justin-get-file"
+#  exit $jobscriptExit
+#fi
+
+##Check that any file was returned
+if [ "${DID_PFN_RSE}" == "" ] ; then
+  echo "Could not get file"
+  exit 0
+fi
+
+FILE=`echo ${DID_PFN_RSE} | cut -f2 -d' '`
+DID=`echo ${DID_PFN_RSE} | cut -f1 -d' '`
+echo "DID: ${DID}"
+
+metacat file show -mj ${DID} > old_md.json
+mcExit=$?
+if [ $mcExit -eq 0 ] ; then
+  echo "old metadata:"
+  cat old_md.json
+else
+  echo "Could not retrieve old metadata"
+  exit 1 
+fi
+
+#
+#
+now=$(date -u +"%Y%m%dT%H%M%SZ")
+#OUTFILE="${OUTPREFIX:-fd_mc_prod_test}.${JUSTIN_REQUEST_ID}"
+#OUTFILE="$OUTFILE.$JUSTIN_JOBSUB_ID.${now}"
+#OUTFILE=`echo $OUTFILE | sed -e 's/@/./'`
+#
+####Run reco2
+lar -c "${RECOFCL}" \
+    -n "${NEVENTS:--1}" \
+    "$FILE" >reco2.log 2>&1
+    #-o "$OUTFILE.root" \
+    #-n "${NEVENTS:--1}" \
+    #"$FILE" >$OUTFILE.log 2>&1
+
+larExit=$?
+echo "Reco step lar exit code $larExit"
+
+if [ $larExit -eq 0 ] ; then
+  # Success !
+  # Log the file for justin and move on to the next step
+  echo "Moving on to metadata extractor "
+else
+  # Error -- exit immediately 
+  #jobscriptExit=1
+  tail -100 reco2.log
+  exit $larExit 
+fi
+
+if [ "${DETECTOR}" = "TEST" ] || [ "${DETECTOR}" = "TEST2" ]; then
+  echo "Done testing. Exiting"
+  exit 0
+fi
+ORIG_OUTFILE=`ls *reco2.root`
+OUTFILE=`echo "${ORIG_OUTFILE}_${now}_reco2" | sed -e 's/reco2.root//'`
+
+mv ${ORIG_OUTFILE} ${OUTFILE}.root
+
+### Get the metadata
+##TODO -- convert this is the right file extensions
+extractor_prod.py --infile ${OUTFILE}.root --campaign ${CAMPAIGN:-fd_mc_he_2023a_reco2} \
+                  --requestid ritm2032831 --no_crc > ${OUTFILE}.root.json
+extractorExit=$?
+if [ $extractorExit -eq 0 ] ; then
+  # Success !
+  echo "Extracted metadata"
+else
+  # Error -- exit immediately 
+  jobscriptExit=1
+  echo "Failed to extract md"
+  exit $extractorExit
+fi
+
+### Convert the metadata to metacat
+##TODO -- make sure the RCDS behavior is correct
+python $CONVERT_DIR/convert_metadata.py -i ${OUTFILE}.root.json \
+                                                -c ${RECOFCL} -j old_md.json \
+                                                --app "art.reco2" \
+                                                --app_ver "${DUNE_VERSION:-v09_85_00d00}" \
+                                                --det "${MDDETTYPE}" \
+                                                --parent ${DID}
+converterExit=$?
+if [ $converterExit -eq 0 ] ; then
+  # Success !
+  echo "Converted metadata"
+  echo "$FILE" > justin-processed-pfns.txt
+else
+  # Error -- exit immediately 
+  jobscriptExit=1
+  echo "Failed to convert md"
+  exit $converterExit
+fi
+
+ls
+exit 0

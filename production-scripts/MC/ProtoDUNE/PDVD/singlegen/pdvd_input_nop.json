@@ -1,0 +1,20 @@
+{ 
+"core.run_type" : "vd-protodune",
+"core.group" : "dune",
+"dune.campaign" : "pdvd_mc_2024a_e1gev_reco",
+"dune_mc.detector_type" : "vd-protodune",  
+"dune_mc.generators" : "SingleGen",  
+"dune_mc.electron_lifetime" : "35ms",  
+"dune_mc.with_cosmics" : "0", 
+"dune_mc.geometry_version" : "protodunevd_v4_refactored.gdml", 
+"dune_mc.gen_fcl_filename" : "gen_protodunevd_cosmics.fcl",
+"dune.config_file" : "stepfcl.fcl",
+"dune_mc.liquid_flow" : "no", 
+"dune_mc.space_charge" : "no",
+"parents": [
+    {
+      "file_name":  "noparents.root"
+    }
+  ]
+}
+

@@ -1,0 +1,370 @@
+#!/bin/bash
+#
+source /cvmfs/dune.opensciencegrid.org/products/dune/setup_dune.sh
+setup metacat
+export METACAT_SERVER_URL=https://metacat.fnal.gov:9443/dune_meta_prod/app
+export METACAT_AUTH_SERVER_URL=https://metacat.fnal.gov:8143/auth/dune
+
+#Setup recent lar software suite
+setup dunesw \
+   "${DUNE_VERSION:-v09_88_00d00}" \
+   -q "${DUNE_QUALIFIER:-e26:prof}"
+echo "printing env"
+
+
+if [ -z ${JUSTIN_PROCESSORS} ]; then
+  JUSTIN_PROCESSORS=1
+fi
+
+echo "Justin processors: ${JUSTIN_PROCESSORS}"
+
+export TF_NUM_THREADS=${JUSTIN_PROCESSORS}   
+export OPENBLAS_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export JULIA_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export MKL_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export NUMEXPR_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export OMP_NUM_THREADS=${JUSTIN_PROCESSORS}  
+
+env
+
+echo "Will use justin-get-file"
+DID_PFN_RSE=`$JUSTIN_PATH/justin-get-file`
+if [ "${DID_PFN_RSE}" == "" ] ; then
+  echo "Could not get file"
+  exit 0
+fi
+pfn=`echo ${DID_PFN_RSE} | cut -f2 -d' '` 
+
+if [ -z ${LINENUMBER} ] ; then
+  LINENUMBER=$pfn
+fi
+
+# echo "linenumber " $LINENUMBER
+ex_code=0
+pstep=10
+tstep=0
+
+now=$(date -u +"%Y%m%dT%H%M%SZ")
+namespace=${JUSTIN_SCOPE:-"usertests"}
+  
+
+# Run Generator
+echo "generator" 
+#prodname="prod_cosmics_protodunevd_${now}_gen_${pfn}"
+prodname="prod_cosmics_protodunevd_${now}_${pfn}_gen"
+istep=1
+tstep=$((tstep+1))
+nstep=$(($pstep*$tstep)) 
+
+ lar -c gen_protodunevd_cosmics.fcl -o ${prodname}.root -n 10
+ 
+if [ $? -ne 0 ]; then 
+  ex_code=$(($nstep+$istep))
+  echo "ERROR: lar (generation) exit code: $ex_code " 
+  files=`ls *_${now}_*`
+  for f in $files 
+    do
+      size=`stat -c %s $f`
+      echo "written output file: $f $size"
+    done 
+else
+  istep=$((istep+1))
+
+rm -fr all-input-dids.txt
+echo "noparents:noparents.root" > all-input-dids.txt
+
+extractor_prod.py --infile ${prodname}.root  --appfamily art --appname gen --appversion  v09_88_00d00  --no_crc --requestid ritm1998918  --input_json ${INPUT_DIR}/pdvd_input_nop.json >    ${prodname}.root.ext.json && sed -i -e 's/stepfcl/gen_protodunevd_cosmics/g' ${prodname}.root.ext.json
+ 
+python ${INPUT_DIR}/pdjson2metadata ${prodname}.root.ext.json all-input-dids.txt usertests > ${prodname}.root.json
+ 
+  
+   if [ $? -ne 0 ] ; then 
+      ex_code=$((nstep+istep))
+      echo "ERROR: metadata extraction (generation) exit code: $ex_code"
+      files=`ls *_${now}_*`
+      for f in $files 
+         do
+           size=`stat -c %s $f`
+           echo "written output file: $f $size"
+       done 
+   fi
+fi 
+
+
+echo "=====checking generation MD"
+
+jq . ${prodname}.root.json
+
+
+  awk '/"core.runs/,/],/ { print;f=1} f&&/],/{ exit}' ${prodname}.root.json > run.json
+  awk '/"core.runs_subruns/,/],/ { print;f=1} f&&/],/{ exit}' ${prodname}.root.json >> run.json
+  awk 'NR==1 {print; exit}' ${INPUT_DIR}/pdvd_input.json > pdvd_run_input.json
+  cat run.json >> pdvd_run_input.json
+  tail -n +2 ${INPUT_DIR}/pdvd_input.json  >> pdvd_run_input.json 
+#echo "generation exit code " $ex_code   
+if [ $ex_code -ne 0 ]; then exit $ex_code ; fi
+ 
+# Stage 1 G4
+echo "G4 stage 1" 
+g4stage1_name="${prodname}_g4_stage1"
+tstep=$((tstep+1))
+nstep=$(($pstep*$tstep)) 
+istep=1
+
+ lar -c protodunevd_refactored_g4_stage1.fcl ${prodname}.root -o ${g4stage1_name}.root
+
+if [ $? -ne 0 ]; then
+  ex_code=$((nstep+istep))
+  echo "ERROR: lar (geant step1) exit code: $ex_code"
+  files=`ls *_${now}_*`
+    for f in $files 
+       do
+         size=`stat -c %s $f`
+         echo "written output file: $f $size"
+       done 
+else
+ istep=$((istep+1))
+
+rm -fr all-input-dids.txt
+echo "noparents:noparents.root" > all-input-dids.txt
+
+
+extractor_prod.py --infile ${g4stage1_name}.root --appfamily art --appname g4-stage1 --appversion  v09_88_00d00  --no_crc --requestid ritm1998918  --input_json pdvd_run_input.json > ${g4stage1_name}.root.ext.json && sed -i -e 's/unknown/mc/g;s/stepfcl/protodunevd_refactored_g4_stage1/g' ${g4stage1_name}.root.ext.json    
+
+python ${INPUT_DIR}/pdjson2metadata ${g4stage1_name}.root.ext.json all-input-dids.txt usertests > ${g4stage1_name}.root.json 
+
+ 
+  if [ $? -ne 0 ] ;then 
+     ex_code=$((nstep+istep))
+     echo "ERROR: metadata extraction (geant step1) exit code: $ex_code" 
+     files=`ls *_${now}_*`
+     for f in $files 
+        do
+          size=`stat -c %s $f`
+          echo "written output file: $f $size"
+        done 
+    fi	
+fi 
+ 
+ 
+if [ $ex_code -ne 0 ]; then exit $ex_code ; fi
+
+echo "=============checking g4stage1 MD"
+
+jq . ${g4stage1_name}.root.json
+
+
+# Stage 2 G4  
+echo "G4 stage 2"
+g4stage2_name="${g4stage1_name}_g4_stage2"
+tstep=$((tstep+1))
+nstep=$(($pstep*$tstep)) 
+istep=1
+
+ lar -c  protodunevd_refactored_g4_stage2_Xe10ppm.fcl ${g4stage1_name}.root -o ${g4stage2_name}.root
+
+if [ $? -ne 0 ]; then
+  ex_code=$((nstep+istep))
+  echo "ERROR: lar (geant step2) exit code: $ex_code"
+  files=`ls *_${now}_*`
+    for f in $files 
+      do
+        size=`stat -c %s $f`
+        echo "written output file: $f $size"
+      done 
+else
+istep=$((istep+1))
+
+rm -fr all-input-dids.txt 
+echo ${namespace}":"${g4stage1_name}.root > all-input-dids.txt
+
+extractor_prod.py --infile ${g4stage2_name}.root  --appfamily art --appname g4-stage2 --appversion  v09_88_00d00  --no_crc --requestid ritm1998918  --input_json pdvd_run_input.json > ${g4stage2_name}.root.ext.json && sed -i -e's/unknown/mc/g;s/stepfcl/protodunevd_refactored_g4_stage2_Xe10ppm/g' ${g4stage2_name}.root.ext.json 
+
+python ${INPUT_DIR}/pdjson2metadata ${g4stage2_name}.root.ext.json all-input-dids.txt usertests > ${g4stage2_name}.root.json 
+
+
+    if [ $? -ne 0 ] ;then
+       ex_code=$((nstep+istep))
+       echo "ERROR: metadata extraction (geant step2) exit code: $ex_code"
+       files=`ls *_${now}_*`
+        for f in $files 
+          do
+            size=`stat -c %s $f`
+            echo "written output file: $f $size"
+          done 
+    fi
+fi 
+if [ $ex_code -ne 0 ]; then exit $ex_code ; fi
+
+
+echo "========== checking g4stage2 MD"
+
+jq . ${g4stage2_name}.root.json 
+
+
+# Stage 3 G4  
+echo "G4 stage 3"
+g4stage3_name="${g4stage2_name}_g4_stage3"
+tstep=$((tstep+1))
+nstep=$(($pstep*$tstep)) 
+istep=1
+
+ lar -c  protodunevd_refactored_g4_stage3_Xe10ppm.fcl ${g4stage2_name}.root -o ${g4stage3_name}.root
+
+if [ $? -ne 0 ]; then
+  ex_code=$((nstep+istep))
+  echo "ERROR: lar (geant step3) exit code: $ex_code"
+  files=`ls *_${now}_*`
+    for f in $files 
+      do
+        size=`stat -c %s $f`
+        echo "written output file: $f $size"
+      done 
+else
+istep=$((istep+1))
+
+rm -fr all-input-dids.txt 
+echo ${namespace}":"${g4stage2_name}.root > all-input-dids.txt
+
+extractor_prod.py --infile ${g4stage3_name}.root  --appfamily art --appname g4-stage3 --appversion  v09_88_00d00  --no_crc --requestid ritm1998918  --input_json pdvd_run_input.json > ${g4stage3_name}.root.ext.json && sed -i -e's/unknown/mc/g;s/stepfcl/protodunevd_refactored_g4_stage3_Xe10ppm/g' ${g4stage3_name}.root.ext.json 
+
+python ${INPUT_DIR}/pdjson2metadata ${g4stage3_name}.root.ext.json all-input-dids.txt usertests > ${g4stage3_name}.root.json 
+
+
+    if [ $? -ne 0 ] ;then
+       ex_code=$((nstep+istep))
+       echo "ERROR: metadata extraction (geant step3) exit code: $ex_code"
+       files=`ls *_${now}_*`
+        for f in $files 
+          do
+            size=`stat -c %s $f`
+            echo "written output file: $f $size"
+          done 
+    fi
+fi 
+if [ $ex_code -ne 0 ]; then exit $ex_code ; fi
+
+
+echo "========== checking g4stage3 MD"
+
+jq . ${g4stage3_name}.root.json 
+ 
+# Detsim
+
+ 
+# Detsim
+echo "detsim"
+detsim_name="${g4stage3_name}_detsim"
+tstep=$((tstep+1))
+nstep=$(($pstep*$tstep)) 
+istep=1
+
+ lar -c protodunevd_refactored_detsim_Xe10ppm.fcl ${g4stage3_name}.root  -o ${detsim_name}.root 
+
+if [ $? -ne 0 ]; then
+  ex_code=$((nstep+istep))
+  echo "ERROR: lar (detsim) exit code: $ex_code"
+  files=`ls *_${now}_*`
+    for f in $files 
+      do
+        size=`stat -c %s $f`
+        echo "written output file: $f $size"
+      done   
+else    
+ istep=$((istep+1))    
+
+rm -fr all-input-dids.txt 
+echo ${namespace}":"${g4stage3_name}.root > all-input-dids.txt
+
+extractor_prod.py --infile ${detsim_name}.root  --appfamily art --appname detsim --appversion  v09_88_00d00  --no_crc --requestid ritm1998918  --input_json ${INPUT_DIR}/pdvd_input.json > ${detsim_name}.root.ext.json  && sed -i -e 's/stepfcl/protodunevd_refactored_detsim_Xe10ppm/g' ${detsim_name}.root.ext.json
+python ${INPUT_DIR}/pdjson2metadata ${detsim_name}.root.ext.json all-input-dids.txt usertests >  ${detsim_name}.root.json
+ 
+    
+    if [ $? -ne 0 ] ;then
+       ex_code=$((nstep+istep))
+       echo "ERROR: metadata extraction (detsim) exit code: $ex_code" 
+       files=`ls *_${now}_*` 
+         for f in $files 
+           do
+            size=`stat -c %s $f`
+            echo "written output file: $f $size"
+          done         
+    fi
+fi 
+
+if [ $ex_code -ne 0 ]; then exit $ex_code ; fi
+
+
+echo "============= checking detsim MD "
+
+jq . ${detsim_name}.root.json 
+ 
+
+
+# Reco
+echo "reco"
+reco_name="${detsim_name}_reco"
+tstep=$((tstep+1))
+nstep=$(($pstep*$tstep)) 
+istep=1
+
+ lar -c protodunevd_reco.fcl ${detsim_name}.root -o ${reco_name}.root
+
+if [ $? -ne 0 ]; then
+   ex_code=$((nstep+istep))
+   echo "ERROR: lar (reco) exit code: $ex_code"
+   files=`ls *_${now}_*` 
+     for f in $files 
+       do
+        size=`stat -c %s $f`
+        echo "written output file: $f $size"
+      done   
+else     
+ istep=$((istep+1))      
+ 
+rm -fr all-input-dids.txt  
+echo ${namespace}":"${detsim_name}.root > all-input-dids.txt 
+ 
+extractor_prod.py --infile ${reco_name}.root  --appfamily art --appname reco --appversion  v09_88_00d00  --no_crc --requestid ritm1998918  --input_json ${INPUT_DIR}/pdvd_input.json > ${reco_name}.root.ext.json  && sed -i -e 's/stepfcl/protodunevd_reco/g' ${reco_name}.root.ext.json   
+python ${INPUT_DIR}/pdjson2metadata ${reco_name}.root.ext.json all-input-dids.txt usertests > ${reco_name}.root.json 
+
+
+
+   if [ $? -ne 0 ] ;then
+       ex_code=$((nstep+istep))
+       echo "ERROR: metadata extraction (reco) exit code: $ex_code" 
+       files=`ls *_${now}_*` 
+         for f in $files 
+           do
+            size=`stat -c %s $f`
+            echo "written output file: $f $size"
+          done                 
+    fi
+fi 
+#overrides=""
+#python ${INPUT_DIR}/pdhd_meta_writer.py \
+#       --json ${INPUT_DIR}/pdhd_base_meta.json \
+#       --overrides ${overrides} \
+#       --parent ${prodname}.root \
+#       -o ${reco_name}.root.ext.json
+
+echo "===========checking reco MD"
+
+jq . ${reco_name}.root.json 
+ 
+
+
+if [ $? -ne 0 ]
+then
+  echo "Exiting with error"
+  exit 1
+else
+  files=`ls *_${now}_*` 
+   for f in $files 
+      do
+       size=`stat -c %s $f`
+       echo "written output file: $f $size"
+      done  
+
+  echo "$pfn" > justin-processed-pfns.txt
+fi

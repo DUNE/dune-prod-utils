@@ -7,7 +7,7 @@ Use this command to create the workflow:
 
 justin simple-workflow \
 --mql \
-"files from fardet-hd:fardet-hd__fd_mc_2023a__hit-reconstructed__v09_78_01d01__standard_reco1_dune10kt_1x2x6__prodgenie_nu_dune10kt_1x2x6__out1__v1_official limit 1 limit 5  ordered"\
+"files from fardet-hd:fardet-hd__fd_mc_2023a__hit-reconstructed__v09_78_01d01__standard_reco1_dune10kt_1x2x6__prodgenie_nu_dune10kt_1x2x6__out1__v1_official limit 5  ordered"\
 --jobscript submit_ana.jobscript --rss-mb 4000 \
 --scope higuera --output-pattern '*_myreco2_*.root:$FNALURL/$USERF' 
 
@@ -43,9 +43,10 @@ echo "Input PFN = $pfn"
 
 # Setup DUNE environment
 source /cvmfs/dune.opensciencegrid.org/products/dune/setup_dune.sh
-source $INPUT_TAR_DIR_LOCAL/my_code/localProducts_larsoft_v09_85_00_e26_prof/setup
+export PRODUCTS="${INPUT_TAR_DIR_LOCAL}/localProducts_larsoft_v09_91_02_e26_prof/:$PRODUCTS"
+# Then we can set up our local products
+setup duneana "$DUNE_VERSION" -q "$DUNE_QUALIFIER"
 setup dunesw "$DUNE_VERSION" -q "$DUNE_QUALIFIER"
-mrbslp
 
 # Construct outFile from input $pfn 
 now=$(date -u +"%Y-%m-%dT_%H%M%SZ")

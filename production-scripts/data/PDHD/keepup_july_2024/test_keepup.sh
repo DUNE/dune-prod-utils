@@ -3,7 +3,7 @@
 check_cvmfs() {
   a=2
   i=0
-  while [ $i -le ${maxiter:-10} ]; do
+  while [ $i -le ${maxiter:-100} ]; do
     stat $1 > /dev/null 2>&1 
     if [ $? == 0 ]; then
       echo "Found in RCDS"
@@ -15,7 +15,6 @@ check_cvmfs() {
     echo "sleeping $a"
     sleep $a
     a=$((2*a))
-    i=$((i+1))
   done
 }
 
@@ -62,16 +61,12 @@ source /cvmfs/dune.opensciencegrid.org/products/dune/setup_dune.sh
 echo "Setting up python and justin"
 setup python v3_9_15
 setup justin
+#htgettoken -a htvaultprod.fnal.gov -i dune
 ##For getting managed tokens
-export HTGETTOKENOPTS="--credkey=dunepro/managedtokens/fifeutilgpvm01.fnal.gov --nooidc --nokerberos -r production"
-htgettoken -a htvaultprod.fnal.gov -i dune $HTGETTOKENOPTS
+export HTGETTOKENOPTS="--credkey=dunepro/managedtokens/fifeutilgpvm01.fnal.gov --nooidc --nokerberos"
 
 echo "Uploading metadata.tar"
 metadata_dir=`justin-cvmfs-upload /exp/dune/app/users/calcuttj/data-mgmt-ops/utilities/metadata.tar` 
-if [ $? -ne 0 ]; then
-  echo "Could not upload. Exiting"
-  exit 1
-fi 
 #metadata_dir=/cvmfs/fifeuser2.opensciencegrid.org/sw/dune/71f643ddd59465043e3cd3712a1e24b9cd0fa631
 #echo "Uploaded to $metadata_dir"
 
@@ -79,8 +74,8 @@ echo "Checking cvmfs"
 maxiter=10
 check_cvmfs $metadata_dir
 if [ $? -ne 0 ]; then
-  echo "Could not find in cvmfs. Exiting"
-  exit 1
+  "Could not find in cvmfs. Exiting"
+  return 1
 fi
 
 #extra=${extra:-""}

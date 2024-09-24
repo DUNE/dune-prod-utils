@@ -1,59 +1,45 @@
 #!/bin/bash
 
-check_cvmfs() {
-  a=2
-  i=0
-  while [ $i -le ${maxiter:-10} ]; do
-    stat $1 > /dev/null 2>&1 
-    if [ $? == 0 ]; then
-      echo "Found in RCDS"
-      break
-    fi
+##Defines check_cvmfs
+DIR="${BASH_SOURCE%/*}"
+if [[ ! -d "$DIR" ]]; then DIR="$PWD"; fi
 
-    echo "iter $i"
-    echo "File not found in RCDS"
-    echo "sleeping $a"
-    sleep $a
-    a=$((2*a))
-    i=$((i+1))
-  done
-}
+source utils.sh
 
-scope=${1}
-extra=${2:-""}
+iter=${1}
+date="${2}"
+if [ $iter -eq 0 ]; then
+  t0="${date}T0000"
+  t1="${date}T1200"
+else
+  t0="${date}T1200"
+  t1="${date}T2400"
+fi
+
+workflow=${3}
+scope=${4}
+extra=${5:-""}
+
+echo "t0 $t0"
+echo "t1 $t1"
+echo "workflow $workflow"
 echo "scope $scope"
 echo "extra $extra"
 
-hour=$(date -u +"%H")
-#convert to central (by hand because I couldn't get it to work)
-hour=$(( $hour - 5 ))
-echo "Hour: $hour"
 
-today="$(date -u +"%Y%m%d")"
+export HTGETTOKENOPTS="--credkey=dunepro/managedtokens/fifeutilgpvm01.fnal.gov --nooidc --nokerberos -r production"
+htgettoken -a htvaultprod.fnal.gov -i dune $HTGETTOKENOPTS
 
-if [ "$hour" -ge 12 ]; then
-  roundhour=12
-  iter=1
-else
-  roundhour=00
-  iter=0
+query="files where created_timestamp >= ${t0} and created_timestamp < ${t1} and core.run_type=hd-protodune and core.file_type=detector and core.data_tier=raw and core.data_stream in (physics, cosmics)"
+
+if [ $workflow -ne 0 ]; then
+  query="$query - parents(files from hd-protodune-det-reco:hd-protodune_reconstruction_keepup_${date}_set${iter}_v09_91_02d01_v0_${workflow} where dune.output_status=confirmed)"
 fi
 
-endhr=$(( $roundhour + 12 ))
-begin="$(date -u +"%Y-%m-%d")T${roundhour}00"
-end="$(date -u +"%Y-%m-%d")T${endhr}00"
-endfind="$(date -d '+2 day' -u +"%Y%m%d")"
-
-echo now: $(date)
-echo begin: $begin
-echo end: $end
-echo endfind: $endfind
-
-query="files where created_timestamp >= ${begin} and created_timestamp < ${end} and core.run_type=hd-protodune and core.file_type=detector and core.data_tier=raw and core.data_stream in (physics, cosmics)"
 jobscript="/exp/dune/app/users/calcuttj/dune-prod-utils/production-scripts/data/PDHD/keepup_july_2024/protodunehd_split_stage_keepup.jobscript"
-desc="PDHD Keepup (${begin} -- ${end})"
-#scope=${scope:-"hd-protodune-det-reco"}
+desc="PDHD makeup (${t0} -- ${t1}), workflow: $workflow"
 maxwall="$(( 3600*5 ))"
+today="$(date -u +"%Y%m%d")"
 recopattern="*keepup.root:hd-protodune_reconstruction_keepup_${today}_set${iter}_v09_91_02d01_v0"
 ntuplepattern="*hists.root:hd-protodune_reconstruction_keepup_ntuples_${today}_set${iter}_v09_91_02d01_v0"
 rssmb=3999
@@ -92,8 +78,7 @@ echo "Will execute"
 echo justin simple-workflow \
   --jobscript $jobscript \
   --description $desc --scope $scope \
-  --mql $query --refind-end-date $endfind \
-  --refind-interval-hours 1 --wall-seconds $maxwall \
+  --mql $query --wall-seconds $maxwall \
   --rss-mb $rssmb --max-distance 30 \
   --output-pattern ${recopattern}'_$JUSTIN_WORKFLOW_ID' \
   --output-pattern ${ntuplepattern}'_$JUSTIN_WORKFLOW_ID' \
@@ -104,8 +89,7 @@ echo justin simple-workflow \
 justin simple-workflow \
   --jobscript $jobscript \
   --description "$desc" --scope $scope \
-  --mql "$query" --refind-end-date $endfind \
-  --refind-interval-hours 1 --wall-seconds $maxwall \
+  --mql "$query" --wall-seconds $maxwall \
   --rss-mb $rssmb --max-distance 30 \
   --output-pattern ${recopattern}'_$JUSTIN_WORKFLOW_ID' \
   --output-pattern ${ntuplepattern}'_$JUSTIN_WORKFLOW_ID' \

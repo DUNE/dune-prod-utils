@@ -1,0 +1,92 @@
+#!/bin/bash
+#
+source /cvmfs/dune.opensciencegrid.org/products/dune/setup_dune.sh
+setup metacat
+export METACAT_SERVER_URL=https://metacat.fnal.gov:9443/dune_meta_prod/app
+export METACAT_AUTH_SERVER_URL=https://metacat.fnal.gov:8143/auth/dune
+
+
+##TODO -- write usage
+
+#CAF_FCL="cafmaker_dunevd10kt_1x8x6_3view_30deg_runreco-nuenergy_geov3.fcl"
+CAF_FCL="cafmaker_atmos_dune10kt_1x2x6_runreco-nuenergy-nuangular_geov5.fcl"
+echo "Using CAF fcl: ${CAF_FCL}"
+
+#Setup recent lar software suite
+setup dunesw \
+   "${DUNE_VERSION:-v09_91_01d00}" \
+   -q "${DUNE_QUALIFIER:-e26:prof}"
+#echo "printing env"
+#env
+ 
+
+if [ -z ${JUSTIN_PROCESSORS} ]; then
+  JUSTIN_PROCESSORS=1
+fi
+
+echo "Justin processors: ${JUSTIN_PROCESSORS}"
+
+export TF_NUM_THREADS=${JUSTIN_PROCESSORS}   
+export OPENBLAS_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export JULIA_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export MKL_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export NUMEXPR_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export OMP_NUM_THREADS=${JUSTIN_PROCESSORS}  
+
+#
+echo "Will use justin-get-file"
+
+now=$(date -u +"%Y%m%dT%H%M%SZ")
+
+
+for nf in {1..15}
+  do
+  DID_PFN_RSE=`$JUSTIN_PATH/justin-get-file` 
+ ##Check that any file was returned
+ if [ "${DID_PFN_RSE}" == "" ] ; then
+   echo "Could not get file"
+#   exit 0
+   continue
+ fi
+
+FILE=`echo ${DID_PFN_RSE} | cut -f2 -d' '`
+DID=`echo ${DID_PFN_RSE} | cut -f1 -d' '`
+ echo ${DID} >> did.list
+ echo ${FILE} >> file.list 
+done
+
+
+
+now=$(date -u +"%Y%m%dT%H%M%SZ")
+ 
+####Run cafmaker
+ 
+echo "now run lar on these files"
+
+cat file.list
+cat did.list
+ 
+# echo $FILE 
+# lar -c  "${CAF_FCL}" "$FILE"  
+lar -c  "${CAF_FCL}" -S file.list > caf_$now.log
+
+# python $INPUT_DIR/mergeMetaCat.py --fileName caf.root --nameSpace usertest --fileList did.list --config ${CAF_FCL} --campaign caf_fd_2024
+python $INPUT_DIR/mergeMetaCat.py --fileName caf.root --nameSpace fardet-hd --fileList did.list --config ${CAF_FCL} --campaign caf_fd_2024
+
+# echo "$FILE" > justin-processed-pfns.txt
+  cat file.list > justin-processed-pfns.txt
+
+  echo "processed files"
+cat justin-processed-pfns.txt 
+
+  cp justin-processed-pfns.txt caf_$now.pfns 
+  cat did.list >> caf_$now.did
+  cat file.list >> caf_$now.file
+  cp caf.root caf_fd_hd_atmo_${JUSTIN_WORKFLOW_ID}_$now.root
+  cp caf.root.json caf_fd_hd_atmo_${JUSTIN_WORKFLOW_ID}_$now.root.json
+#  cp caf.root caf_$now.root
+#  cp caf.root.json caf_$now.root.json
+
+ls
+ 
+

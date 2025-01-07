@@ -49,6 +49,7 @@ echo begin: $begin
 echo end: $end
 echo endfind: $endfind
 
+## TODO -- ADD IN 'dune.daq_test=False'
 query="files where created_timestamp >= ${begin} and created_timestamp < ${end} and core.run_type=hd-protodune and core.file_type=detector and core.data_tier=raw and core.data_stream in (physics, cosmics)"
 jobscript="/exp/dune/app/users/calcuttj/dune-prod-utils/production-scripts/data/PDHD/keepup_july_2024/protodunehd_split_stage_keepup.jobscript"
 desc="PDHD Keepup (${begin} -- ${end})"

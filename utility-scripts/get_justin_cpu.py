@@ -1,10 +1,10 @@
-from metacat.webapi import MetaCatClient
 import h5py as h5
 from argparse import ArgumentParser as ap
 import matplotlib.pyplot as plt
 
 
 def get_times(args):
+  from metacat.webapi import MetaCatClient
   mc = MetaCatClient() 
 
   cpu_time = {}
@@ -67,23 +67,33 @@ def plot(f):
 
   fig, ax = plt.subplots()
   ax.pie(country_pct_cpus.values(), labels=country_pct_cpus.keys())
-  plt.show()
+  if args.save:
+    plt.savefig(args.o)
+  else:
+    plt.show()
 
+def sum_(args):
+  with h5.File(args.i, 'r') as f:
+    cpu_times = [i for i in f['cpu_time']]
+    import numpy as np
+    print(np.sum(cpu_times))
 
 if __name__ == '__main__':
   parser = ap()
   parser.add_argument('--routine', type=str, default='get_times',
-                      choices=['get_times', 'plot'])
+                      choices=['get_times', 'plot', 'sum'])
   parser.add_argument('-w', type=str, nargs='+', default=None)
   parser.add_argument('-q', type=str, default=None)
   parser.add_argument('--limit', type=int, default=None)
   parser.add_argument('-i', type=str, default=None)
   parser.add_argument('-o', type=str, default=None)
+  parser.add_argument('--save', action='store_true')
   args = parser.parse_args()
 
   routines = {
     'get_times':get_times,
     'plot':plot_from_args,
+    'sum':sum_,
   }
 
   routines[args.routine](args)

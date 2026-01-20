@@ -40,7 +40,7 @@ def extract_run_numbers(files: list[dict]) -> dict[int, int]:
 
 def generate_run_query(run_number: int) -> str:
     """Generate a MetaCat query for a specific run number."""
-    return f"files where core.run_number={run_number}"
+    return f"files where core.runs={run_number} and core.file_type=detector and core.data_tier=raw and core.data_stream in (physics, cosmics, calibration)"
 
 
 def main():

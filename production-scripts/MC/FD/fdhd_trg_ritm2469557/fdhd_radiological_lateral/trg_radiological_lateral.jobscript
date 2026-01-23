@@ -1,0 +1,206 @@
+#!/bin/bash
+#
+source /cvmfs/dune.opensciencegrid.org/products/dune/setup_dune.sh
+setup metacat
+export METACAT_SERVER_URL=https://metacat.fnal.gov:9443/dune_meta_prod/app
+export METACAT_AUTH_SERVER_URL=https://metacat.fnal.gov:8143/auth/dune
+
+#Setup recent lar software suite
+setup dunesw \
+   "${DUNE_VERSION:-v10_06_00d01}" \
+   -q "${DUNE_QUALIFIER:-e26:prof}"
+echo "printing env"
+
+
+if [ -z ${JUSTIN_PROCESSORS} ]; then
+  JUSTIN_PROCESSORS=1
+fi
+
+echo "Justin processors: ${JUSTIN_PROCESSORS}"
+
+export TF_NUM_THREADS=${JUSTIN_PROCESSORS}   
+export OPENBLAS_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export JULIA_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export MKL_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export NUMEXPR_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export OMP_NUM_THREADS=${JUSTIN_PROCESSORS}  
+
+#env
+#echo "Will use justin-get-file"
+DID_PFN_RSE=`$JUSTIN_PATH/justin-get-file`
+if [ "${DID_PFN_RSE}" == "" ] ; then
+  echo "Could not get file"
+  exit 0
+fi
+pfn=`echo ${DID_PFN_RSE} | cut -f2 -d' '` 
+
+if [ -z ${LINENUMBER} ] ; then
+  LINENUMBER=$pfn
+fi
+
+# echo "linenumber " $LINENUMBER
+ex_code=0
+pstep=10
+tstep=0
+
+now=$(date -u +"%Y%m%dT%H%M%SZ")
+namespace=${JUSTIN_SCOPE:-"usertests"} 
+
+echo "===============JUSTIN_JOBSUB_ID"
+runid=$JUSTIN_WORKFLOW_ID
+CLUSTER=`echo $JUSTIN_JOBSUB_ID | awk '{split($0,a,"."); print a[1]}'`
+echo $CLUSTER
+
+# define run number and set number of events 
+firstsubrun=0
+#nevts=100
+#nevts=50
+nevts=10
+e_pfn=$(echo "$pfn" | sed 's/^0*//')
+start_e_pfn=$((e_pfn -1))
+firstevent=$((start_e_pfn * nevts + 1)) 
+
+echo "======checking===="
+echo ${DID_PFN_RSE} 
+echo ${pfn}
+echo $runid 
+echo $firstsubrun
+echo $nevts
+echo $firstevent
+
+
+ 
+ 
+
+
+# Run Generator
+echo "============generator=========================" 
+prodname="prodbackground_radiological_decay0_dune10kt_1x2x6_lateralAPA_${now}_gen_${pfn}" 
+istep=1
+tstep=$((tstep+1))
+nstep=$(($pstep*$tstep)) 
+tcode=$((nstep+istep))
+tcode=$((tcode*1000)) 
+
+lar -c prodbackground_radiological_decay0_dune10kt_1x2x6_lateralAPA.fcl -o ${prodname}.root -n $nevts -e ${runid}:${firstsubrun}:${firstevent}
+ 
+exit_code=$?  
+ex_code=$((exit_code+tcode))
+files=`ls *_${now}_*`  
+if [ $exit_code -ne 0 ]; then
+ echo "ERROR: lar (generation) exit code: $ex_code " 
+ echo "output files size: "
+     for f in $files 
+      do
+       size=`stat -c %s $f`
+       echo   $f $size 
+      done   
+ return $ex_code 
+fi
+ 
+#  Stage 1 G4
+echo "============G4 stage1=========================" 
+g4_name="${prodname}_supernova_g4"
+tstep=$((tstep+1))
+nstep=$(($pstep*$tstep)) 
+istep=1 
+tcode=$((nstep+istep))
+tcode=$((tcode*1000))
+ 
+lar -c supernova_g4_halfActiveVol_dune10kt_1x2x6.fcl  ${prodname}.root -o ${g4_name}.root -n -1
+
+exit_code=$?    
+ex_code=$((exit_code+tcode))
+files=`ls *_${now}_*`  
+if [ $exit_code -ne 0 ]; then
+  echo "ERROR: lar (geant4 step1) exit code: $ex_code " 
+   echo "output files size: "
+     for f in $files 
+      do
+       size=`stat -c %s $f`
+       echo   $f $size 
+      done   
+  return $ex_code 
+fi
+#  Stage 2 G4 
+tstep=$((tstep+1))
+nstep=$(($pstep*$tstep)) 
+istep=1 
+tcode=$((nstep+istep))
+tcode=$((tcode*1000))
+ 
+# Detsim
+echo "============detsim========================="  
+detsim_name="${g4_name}_detsim"
+tstep=$((tstep+1))
+nstep=$(($pstep*$tstep)) 
+istep=1  
+tcode=$((nstep+istep))
+tcode=$((tcode*1000))
+
+lar -c   detsim_dune10kt_1x2x6_notpcsigproc.fcl  ${g4_name}.root  -o ${detsim_name}.root -n -1
+
+exit_code=$?    
+ex_code=$((exit_code+tcode))
+files=`ls *_${now}_*`  
+if [ $exit_code -ne 0 ]; then 
+  echo "ERROR: lar (detsim) exit code: $ex_code " 
+  echo "output files size: "
+     for f in $files 
+      do
+       size=`stat -c %s $f`
+       echo   $f $size 
+      done   
+  return $ex_code 
+fi 
+  
+extractor_prod.py --infile ${detsim_name}.root --no_crc    --appfamily art --appname detsim --appversion  v10_06_00d01  --requestid ritm2469557  --strip_parents --input_json ${INPUT_DIR}/trg_input.json> ${detsim_name}.root.ext.json  && sed -i -e 's/stepfcl/detsim_dune10kt_1x2x6_notpcsigproc.fcl/g'  -e 's/physics/fardet-hd/g'  ${detsim_name}.root.ext.json 
+
+exit_code=$?   
+ex_code=$((exit_code+tcode))
+files=`ls *_${now}_*`  
+if [ $exit_code -gt 1 ]; then 
+  echo "ERROR: metadata generation   $ex_code " 
+   echo "output files size: "
+     for f in $files 
+      do
+       size=`stat -c %s $f`
+       echo   $f $size 
+      done   
+ return $ex_code 
+fi 
+ 
+
+rm -fr all-input-dids.txt
+echo "noparents:noparents.root" > all-input-dids.txt 
+python ${INPUT_DIR}/pdjson2metadata ${detsim_name}.root.ext.json  all-input-dids.txt usertests > ${detsim_name}.root.temp.json 
+sed '/DUNE/ s/.*/\L&/' ${detsim_name}.root.temp.json > ${detsim_name}.root.json 
+exit_code=$?    
+ex_code=$((exit_code+tcode))
+files=`ls *_${now}_*` 
+if [ $exit_code -ne 0 ]; then
+  echo "ERROR: metadata writing  $ex_code " 
+   echo "output files size: "
+     for f in $files 
+      do
+       size=`stat -c %s $f`
+       echo   $f $size 
+      done   
+  return $ex_code 
+fi  
+ 
+if [ $? -ne 0 ]
+then
+  echo "Exiting with error"
+  exit 1
+else
+  files=`ls *_${now}_*`
+   for f in $files
+      do
+       size=`stat -c %s $f`
+       echo "written output file: $f $size"
+      done
+
+  echo "$pfn" > justin-processed-pfns.txt
+fi
+

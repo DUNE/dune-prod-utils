@@ -1,0 +1,153 @@
+#!/bin/bash
+#
+source /cvmfs/dune.opensciencegrid.org/products/dune/setup_dune.sh
+setup metacat
+export METACAT_SERVER_URL=https://metacat.fnal.gov:9443/dune_meta_prod/app
+export METACAT_AUTH_SERVER_URL=https://metacat.fnal.gov:8143/auth/dune
+
+
+#Setup recent lar software suite
+
+#setup dunesw v10_11_00d01 -q e26:prof
+setup dunesw v10_12_01d01 -q e26:prof
+#echo "printing env"
+#env
+
+
+if [ -z ${JUSTIN_PROCESSORS} ]; then
+  JUSTIN_PROCESSORS=1
+fi
+
+echo "Justin processors: ${JUSTIN_PROCESSORS}"
+
+export TF_NUM_THREADS=${JUSTIN_PROCESSORS}   
+export OPENBLAS_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export JULIA_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export MKL_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export NUMEXPR_NUM_THREADS=${JUSTIN_PROCESSORS} 
+export OMP_NUM_THREADS=${JUSTIN_PROCESSORS}  
+
+#
+echo "Will use justin-get-file" 
+ 
+
+for nf in {1..4}
+  do
+  DID_PFN_RSE=`$JUSTIN_PATH/justin-get-file` 
+ ##Check that any file was returned
+ if [ "${DID_PFN_RSE}" == "" ] ; then
+   echo "Could not get file"
+#   exit 0
+   continue
+ fi
+
+FILE=`echo ${DID_PFN_RSE} | cut -f2 -d' '`
+DID=`echo ${DID_PFN_RSE} | cut -f1 -d' '`
+ echo ${DID} >> did.list
+ echo ${FILE} >> file.list 
+done
+ 
+while read inFile; do
+
+temp=`echo "$inFile" | awk -F'/' '{print $NF}'`
+DID="fardet-hd:"$temp
+FILE=$inFile 
+ 
+ 
+metacat file show -mj ${DID} > old_md.json
+mcExit=$?
+if [ $mcExit -eq 0 ] ; then
+  echo "old metadata:"
+  cat old_md.json
+else
+  echo "Could not retrieve old metadata"
+  exit 1 
+fi
+
+now=$(date -u +"%Y%m%dT%H%M%SZ")  
+namespace=${JUSTIN_SCOPE:-"usertests"}
+
+echo "===============JUSTIN_JOBSUB_ID"
+runid=$JUSTIN_WORKFLOW_ID
+CLUSTER=`echo $JUSTIN_JOBSUB_ID | awk '{split($0,a,"."); print a[1]}'`
+echo $CLUSTER
+ 
+# reco2
+echo "============TPG========================" 
+
+
+infile=`echo $DID | awk -F ':' '{print $2}'`
+reco="${infile%.root}" 
+reco_name=${reco}_${now}_reco
+
+echo "check  output filename "  ${reco_name}.root
+
+lar -c  tpg_dune10kt_1x2x6.fcl $FILE -o ${reco_name}.root -n -1
+larExit=$? 
+
+
+#echo "Reco step lar exit code $larExit"
+
+
+if [ $larExit -eq 0 ] ; then 
+  echo "Moving on to metadata extractor "
+else
+  exit $larExit 
+fi
+ 
+#OUTFILE=`ls *reco.root`
+OUTFILE=${reco_name}.root
+
+#mv triggerAnaTree_hist.root triggerAnaTree_${reco_name}_hist.root
+
+
+echo "============OUTPUT FILE: " $OUTFILE  
+ 
+extractor_prod.py --infile ${OUTFILE}  --no_crc    --appfamily art --appname reco --appversion  v10_12_01d01  --requestid ritm2612698  --input_json ${INPUT_DIR}/trg_input.json> ${OUTFILE}.ext.json  && sed -i -e 's/physics/fardet-hd/g' ${OUTFILE}.ext.json
+
+extractorExit=$?
+if [ $extractorExit -eq 0 ] ; then
+  # Success !
+  echo "Extracted metadata"
+else
+  # Error -- exit immediately 
+  jobscriptExit=1
+  echo "Failed to extract md"
+  exit $extractorExit
+fi
+
+sed -i 's/Reco2/reco2/g'  ${OUTFILE}.ext.json
+
+echo "checking file======" $DID
+echo $DID > all-input-dids.txt
+python ${INPUT_DIR}/pdjson2metadata ${OUTFILE}.ext.json  all-input-dids.txt usertests > ${OUTFILE}.temp.json 
+
+
+sed '/DUNE/ s/.*/\L&/'  ${OUTFILE}.temp.json >  ${OUTFILE}.json
+
+idrun=`jq -r '.. | objects | select(has("core.runs")) | .["core.runs"][0]' old_md.json`
+idsubrun=`jq -r '.. | objects | select(has("core.runs_subruns")) | .["core.runs_subruns"][0]' old_md.json`
+
+sed -i "s/-99999/$idrun/g" ${OUTFILE}.json
+sed -i "s/-88888/$idsubrun/g" ${OUTFILE}.json
+
+# cp ${OUTFILE}.json triggerAnaTree_${reco_name}_hist.root.json
+		  
+converterExit=$?
+if [ $converterExit -eq 0 ] ; then
+  # Success !
+  echo "MD conversion to MetaCat OK"
+#  echo "$FILE" > justin-processed-pfns.txt
+   echo "$FILE" >> temp_pfns.txt
+else 
+  jobscriptExit=1
+  echo "Failed to convert md to MetacaCat"
+  exit $converterExit
+fi
+
+ 
+ls
+
+done < file.list
+cp temp_pfns.txt justin-processed-pfns.txt
+exit 0
